@@ -1,0 +1,166 @@
+#!/bin/bash
+
+set -e
+
+SCRIPT_NAME='octofind'
+
+matches_debug() {
+  if [ -z "$DEBUG" ]; then
+    return 1
+  fi
+  # shellcheck disable=SC2053
+  if [[ $SCRIPT_NAME == $DEBUG ]]; then
+    return 0
+  fi
+  return 1
+}
+
+debug() {
+  local cyan='\033[0;36m'
+  local no_color='\033[0;0m'
+  local message="$@"
+  matches_debug || return 0
+  (>&2 echo -e "[${cyan}${SCRIPT_NAME}${no_color}]: $message")
+}
+
+script_directory(){
+  local source="${BASH_SOURCE[0]}"
+  local dir=""
+
+  while [ -h "$source" ]; do # resolve $source until the file is no longer a symlink
+    dir="$( cd -P "$( dirname "$source" )" && pwd )"
+    source="$(readlink "$source")"
+    [[ $source != /* ]] && source="$dir/$source" # if $source was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+  done
+
+  dir="$( cd -P "$( dirname "$source" )" && pwd )"
+
+  echo "$dir"
+}
+
+assert_required_params() {
+  local subcmd="$1"
+  local search_term="$2"
+
+  if [ -z "$subcmd" ]; then
+    echo "Missing <sub-command> as first argument"
+    exit 1
+  fi
+
+  if [ -z "$subcmd" ]; then
+    echo "<sub-command> argument must be one of [env,service]"
+    exit 1
+  fi
+
+  if [ -z "$search_term" ]; then
+    echo "Missing <search-term> as second argument"
+    exit 1
+  fi
+}
+
+all_env_files() {
+  find . -type f -iname '*.env'
+}
+
+all_cluster_files() {
+  find . -type f -iname 'cluster.json'
+}
+
+find_in_env() {
+  local search_term="$1"
+  for env_file in $(all_env_files); do
+    while IFS= read -r env_line; do
+      if [ -n "$env_line" ]; then
+        # shellcheck disable=SC2086
+        if echo "$env_line" | grep -q -i $search_term; then
+          echo "Found match in $env_file"
+        fi
+      fi
+    done < "$env_file"
+  done
+}
+
+find_in_cluster() {
+  local search_term="$1"
+  for cluster_file in $(all_cluster_files); do
+    debug "cluster_file $cluster_file"
+    for service_name in $(jq --raw-output '.services[].name' "$cluster_file"); do
+      # shellcheck disable=SC2086
+      if echo "$service_name" | grep -q -i $search_term; then
+        echo "Found match in $cluster_file"
+      fi
+    done
+  done
+}
+
+usage(){
+  echo "USAGE: ${SCRIPT_NAME} <sub-command> <search-term>"
+  echo ''
+  echo 'Description: find which stacks are running what'
+  echo ''
+  echo 'Available sub-commands:'
+  echo '  env'
+  echo '  service'
+  echo ''
+  echo 'Arguments:'
+  echo '  -h, --help       print this help text'
+  echo '  -v, --version    print the version'
+  echo ''
+  echo 'Environment:'
+  echo '  DEBUG            print debug output'
+  echo ''
+}
+
+version(){
+  local directory
+  directory="$(script_directory)"
+
+  if [ -f "$directory/VERSION" ]; then
+    cat "$directory/VERSION"
+  else
+    echo "unknown-version"
+  fi
+}
+
+main() {
+  local subcmd
+  local search_term
+  while [ "$1" != "" ]; do
+    local param="$1"
+    case "$param" in
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      -v | --version)
+        version
+        exit 0
+        ;;
+      *)
+        if [ "${param::1}" == '-' ]; then
+          echo "ERROR: unknown parameter \"$param\""
+          usage
+          exit 1
+        fi
+        if [ -z "$subcmd" ]; then
+          subcmd="$param"
+        elif [ -z "$search_term" ]; then
+          search_term="$param"
+        fi
+        ;;
+    esac
+    shift
+  done
+
+  assert_required_params "$subcmd" "$search_term"
+
+  if [ "$subcmd" == "env" ]; then
+    find_in_env "$search_term"
+  elif [ "$subcmd" == "service" ]; then
+    find_in_cluster "$search_term"
+  else
+    fatal "Invalid command $subcmd"
+  fi
+}
+
+main "$@"
