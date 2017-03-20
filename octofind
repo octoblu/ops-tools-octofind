@@ -47,8 +47,8 @@ assert_required_params() {
     exit 1
   fi
 
-  if [ -z "$subcmd" ]; then
-    echo "<sub-command> argument must be one of [env,service]"
+  if [ "$subcmd" != "env" ] && [ "$subcmd" != "service" ] && [ "$subcmd" != "machine" ]; then
+    echo "<sub-command> argument must be one of [env,service,machine]"
     exit 1
   fi
 
@@ -66,6 +66,10 @@ all_cluster_files() {
   find . -type f -iname 'cluster.json'
 }
 
+all_clusters() {
+  find . -type d -iname 'cluster.json'
+}
+
 find_in_env() {
   local search_term="$1"
   for env_file in $(all_env_files); do
@@ -78,6 +82,11 @@ find_in_env() {
       fi
     done < "$env_file"
   done
+}
+
+find_in_machines() {
+  local search_term="$1"
+  find . -type d -name "$search_term"
 }
 
 find_in_cluster() {
@@ -101,6 +110,7 @@ usage(){
   echo 'Available sub-commands:'
   echo '  env'
   echo '  service'
+  echo '  machine'
   echo ''
   echo 'Arguments:'
   echo '  -h, --help       print this help text'
@@ -158,6 +168,8 @@ main() {
     find_in_env "$search_term"
   elif [ "$subcmd" == "service" ]; then
     find_in_cluster "$search_term"
+  elif [ "$subcmd" == "machine" ]; then
+    find_in_machines "$search_term"
   else
     fatal "Invalid command $subcmd"
   fi
